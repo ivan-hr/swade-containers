@@ -1,0 +1,14 @@
+/* Styling for items inside a container */
+.swade-item-child {
+    padding-left: 30px !important;
+    border-left: 2px dashed #ccc !important;
+    margin-left: 10px !important;
+    opacity: 0.9;
+}
+
+/* Optional: Make the chevron look a bit more subtle */
+.container-indicator {
+    color: #7a7a7a;
+    font-size: 0.9em;
+    cursor: pointer;
+}
