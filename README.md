@@ -8,17 +8,17 @@ SWADE Containers enhances the standard SWADE actor sheet by allowing items to ac
 
 <img src="assets/screenshot.png" alt="Savage Containers Preview" width="500">
 
-#### How it Works:
+### **How it Works:**
 
 1.  **Create a Container:** Open any item (e.g., "Backpack"), go to **Properties**, and check **Is a Container?**.
-2.  **Organize Gear:** Drag a weapon, piece of armor, or adventuring gear and drop it directly onto your container's name.
+2.  **Fantasy Companion Rules:** Check SWADE Backpack to apply the 50% weight reduction to all items stored inside.
+3.  **Folding:** Click the arrow icon next to a container name to collapse or expand its contents.
+4.  **Organize Gear:** Drag any Gear or Consumable item and drop it directly onto your container's name to nest it.
+5.  **Container Weight Link:** Setting a container to Stored automatically updates all nested items, ensuring weight totals are calculated correctly.
 
 
 ### **Installation:**
-
-1.  Install the module using the Manifest URL below.
-2.  Enable **SWADE Containers** in your world's module management settings.
-3.  Open any Gear, Weapon, or Armor item to configure its container settings.
+To install, import this manifest into the module browser or search for 'SWADE Containers'.
 
 **Manifest URL:**
 `https://raw.githubusercontent.com/ivan-hr/swade-containers/main/module.json`

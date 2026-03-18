@@ -6,142 +6,228 @@ Hooks.once('init', () => {
     console.log("SWADE Containers | Initializing...");
 });
 
-// 1. Item Sheet: Dropdown UI
-Hooks.on("renderItemSheet", (app, html, data) => {
-    const supportedTypes = ["gear", "weapon", "armor", "shield"];
-    if (!supportedTypes.includes(app.item.type)) return;
+// 1. Scroll Restoration Logic
+Hooks.on("preRenderApplicationV2", (app) => {
+    if (app.document?.documentName !== "Actor") return;
+    const html = app.element;
+    if (!html) return;
 
-    const item = app.item;
-    const actor = item.actor;
-    const isContainer = item.getFlag("swade-containers", "isContainer") || false;
-    const currentParentId = item.getFlag("swade-containers", "containerId") || "";
+    const scrollable = html.querySelector('.sheet-body.scrollable.active');
+    if (scrollable) {
+        app._swadeContainerScroll = scrollable.scrollTop;
+    }
+});
 
-    let containerSection = `
-        <hr>
+Hooks.on("renderApplicationV2", (app, html) => {
+    const doc = app.document;
+    const root = (html instanceof HTMLElement ? html : html[0]);
+
+    if (doc?.documentName === "Item") {
+        injectItemUI(doc, root);
+    } else if (doc?.documentName === "Actor") {
+        requestAnimationFrame(() => {
+            handleActorUI(app, root);
+            
+            if (app._swadeContainerScroll !== undefined) {
+                const scrollable = root.querySelector('.sheet-body.scrollable.active');
+                if (scrollable) {
+                    scrollable.scrollTop = app._swadeContainerScroll;
+                    setTimeout(() => { scrollable.scrollTop = app._swadeContainerScroll; }, 1);
+                    setTimeout(() => { scrollable.scrollTop = app._swadeContainerScroll; }, 50);
+                }
+            }
+        });
+    }
+});
+
+// 2. Item Sheet UI
+function injectItemUI(item, element) {
+    const supported = ["gear", "consumable"]; 
+    if (!supported.includes(item.type)) return;
+    
+    if (element.querySelector('.swade-container-settings')) return;
+
+    const isContainer = !!item.getFlag("swade-containers", "isContainer");
+    const isBackpack = !!item.getFlag("swade-containers", "isBackpack");
+    const parentId = item.getFlag("swade-containers", "containerId") || "";
+
+    const div = document.createElement("div");
+    div.classList.add("swade-container-settings");
+    div.style.cssText = "margin-top: 10px; padding: 10px; border: 1px dashed #7a7971; border-radius: 5px; background: rgba(0,0,0,0.05);";
+
+    let options = `<option value="">-- None --</option>`;
+    if (item.actor) {
+        item.actor.items.filter(i => supported.includes(i.type) && i.getFlag("swade-containers", "isContainer") && i.id !== item.id)
+            .forEach(c => {
+                options += `<option value="${c.id}" ${parentId === c.id ? "selected" : ""}>${c.name}</option>`;
+            });
+    }
+
+    div.innerHTML = `
+        <h4 class="form-header">Container Settings</h4>
         <div class="form-group">
             <label>Is a Container?</label>
             <input type="checkbox" name="flags.swade-containers.isContainer" ${isContainer ? "checked" : ""}>
         </div>
+        <div class="form-group backpack-option" style="${isContainer ? '' : 'display:none;'}">
+            <label><i class="fa fa-cube" style="color: #111;"></i> SWADE Backpack Rule (50% Weight inside)</label>
+            <input type="checkbox" name="flags.swade-containers.isBackpack" ${isBackpack ? "checked" : ""}>
+        </div>
+        <div class="form-group">
+            <label>Belongs to Container:</label>
+            <select name="flags.swade-containers.containerId">${options}</select>
+        </div>
     `;
 
-    if (actor) {
-        const availableContainers = actor.items.filter(i => 
-            i.getFlag("swade-containers", "isContainer") && i.id !== item.id
-        );
+    const target = element.querySelector('.item-grants')?.closest('section') || element.querySelector('section[data-tab*="prop"]') || element.querySelector('.sheet-body');
+    if (target) target.appendChild(div);
 
-        let options = `<option value="">-- None --</option>`;
-        for (let c of availableContainers) {
-            const isSelected = (currentParentId === c.id || currentParentId.endsWith(c.id)) ? "selected" : "";
-            options += `<option value="${c.id}" ${isSelected}>${c.name}</option>`;
-        }
+    div.querySelector('input[name="flags.swade-containers.isContainer"]').addEventListener('change', e => {
+        div.querySelector('.backpack-option').style.display = e.target.checked ? 'flex' : 'none';
+    });
+}
 
-        containerSection += `
-            <div class="form-group">
-                <label>Belongs to Container:</label>
-                <select name="flags.swade-containers.containerId">
-                    ${options}
-                </select>
-            </div>
-        `;
-    }
-    html.find(".tab[data-tab='properties']").append(containerSection);
-});
-
-// 2. Actor Sheet: Nesting & Weight
-Hooks.on("renderActorSheet", (app, html, data) => {
-    const actor = app.actor;
-    const itemRows = html.find('li.item[data-item-id]');
+// 3. Actor Sheet: Nesting & Weight
+function handleActorUI(app, element) {
+    const actor = app.document;
+    const $html = $(element);
     const weightTotals = {};
+    const itemRows = $html.find('[data-item-id]');
+    const supported = ["gear", "consumable"];
+    
+    itemRows.each((i, el) => {
+        const item = actor.items.get(el.dataset.itemId);
+        if (!item || !supported.includes(item.type)) return;
 
-    itemRows.each((index, element) => {
-        const itemId = element.dataset.itemId;
-        const item = actor.items.get(itemId);
-        if (!item) return;
-
-        // Container Icons
         if (item.getFlag("swade-containers", "isContainer")) {
-            const isCollapsed = item.getFlag("swade-containers", "isCollapsed");
-            const nameLink = $(element).find('.item-name');
-            if (nameLink.find('.container-indicator').length === 0) {
+            const isCollapsed = !!item.getFlag("swade-containers", "isCollapsed");
+            const isBackpack = !!item.getFlag("swade-containers", "isBackpack");
+            const nameLink = $(el).find('.item-name, .name-link').first();
+            
+            if (nameLink.length && !nameLink.find('.container-indicator').length) {
+                if (isBackpack) {
+                    nameLink.append(`<i class="fa fa-cube backpack-indicator" title="Weight Reduction Container" style="margin-left:8px; color: #111; opacity:0.8; font-size:0.8em;"></i>`);
+                }
                 const iconClass = isCollapsed ? 'fa-angle-down' : 'fa-angle-up';
-                nameLink.append(` <i class="fas ${iconClass} container-indicator"></i>`);
+                nameLink.append(`<i class="fas ${iconClass} container-indicator" style="margin-left:8px; cursor:pointer; opacity: 0.7;"></i>`);
             }
         }
 
-        // Child Logic
-        let parentId = item.getFlag("swade-containers", "containerId")?.trim();
-        if (parentId) {
-            if (parentId.includes('.')) parentId = parentId.split('.').pop();
-            const parentRow = html.find(`li.item[data-item-id="${parentId}"]`);
+        const pId = item.getFlag("swade-containers", "containerId");
+        if (pId) {
+            const w = (Number(item.system.weight) || 0) * (Number(item.system.quantity) || 1);
+            weightTotals[pId] = (weightTotals[pId] || 0) + w;
+        }
+    });
 
-            if (parentRow.length > 0) {
-                $(element).insertAfter(parentRow);
-                const parentItem = actor.items.get(parentId);
-                const isCollapsed = parentItem?.getFlag("swade-containers", "isCollapsed");
+    itemRows.each((i, el) => {
+        const item = actor.items.get(el.dataset.itemId);
+        if (!item || !supported.includes(item.type)) return;
 
-                // Toggle visibility and add CSS class
-                element.classList.add("swade-item-child");
-                isCollapsed ? $(element).hide() : $(element).show();
-
-                // Weight Math
-                const itemWeight = (Number(item.system.weight) || 0) * (Number(item.system.quantity) || 1);
-                weightTotals[parentId] = (weightTotals[parentId] || 0) + itemWeight;
+        const pId = item.getFlag("swade-containers", "containerId");
+        if (pId) {
+            const parentRow = $html.find(`[data-item-id="${pId}"]`).first();
+            if (parentRow.length && parentRow.parent().is($(el).parent())) {
+                $(el).insertAfter(parentRow);
+                const isCollapsed = !!actor.items.get(pId)?.getFlag("swade-containers", "isCollapsed");
+                $(el).addClass("swade-item-child").css({
+                    "padding-left": "20px", "border-left": "2px solid #777",
+                    "display": isCollapsed ? "none" : "flex"
+                });
             }
         }
     });
 
-    // Weight Update UI
-    for (const [containerId, total] of Object.entries(weightTotals)) {
-        const parentRow = html.find(`li.item[data-item-id="${containerId}"]`);
-        const weightSpan = parentRow.find('.weight'); 
-        if (weightSpan.length > 0) {
-            const originalWeight = Number(actor.items.get(containerId).system.weight) || 0;
-            const combinedWeight = parseFloat((originalWeight + total).toFixed(2));
-            const contentWeight = parseFloat(total.toFixed(2));
-            weightSpan.html(`${combinedWeight} <small style="opacity:0.6">(${contentWeight})</small>`);
+    for (const [id, total] of Object.entries(weightTotals)) {
+        const span = $html.find(`[data-item-id="${id}"] .weight, [data-item-id="${id}"] .item-weight`).first();
+        if (span.length) {
+            const containerItem = actor.items.get(id);
+            const self = (Number(containerItem.system.weight) || 0) * (Number(containerItem.system.quantity) || 1);
+            span.html(`${(self + total).toFixed(2)} <small style="opacity:0.7">(${total.toFixed(2)})</small>`);
         }
     }
 
-    // Toggle Click Listener
-    html.find('.item-name').off('click.swade-containers').on('click.swade-containers', async (event) => {
-        const li = $(event.currentTarget).closest('li.item');
-        const item = actor.items.get(li.data('item-id'));
-
+    $html.find('.item-name, .name-link').off('click.swadeContainers').on('click.swadeContainers', async (ev) => {
+        const row = $(ev.currentTarget).closest('[data-item-id]');
+        const item = actor.items.get(row.data('item-id'));
         if (item?.getFlag("swade-containers", "isContainer")) {
-            event.preventDefault();
-            event.stopPropagation();
-            const currentState = !!item.getFlag("swade-containers", "isCollapsed");
-            await item.setFlag("swade-containers", "isCollapsed", !currentState);
+            ev.preventDefault(); ev.stopPropagation(); 
+            const scrollable = element.querySelector('.sheet-body.scrollable.active');
+            if (scrollable) app._swadeContainerScroll = scrollable.scrollTop;
+            await item.setFlag("swade-containers", "isCollapsed", !item.getFlag("swade-containers", "isCollapsed"));
         }
     });
-});
+}
 
 // 4. Drag and Drop Interaction
-Hooks.on("dropActorSheetData", (actor, sheet, data) => {
-    if (data.type !== "Item") return true;
-
-    const event = window.event;
-    const targetRow = $(event.target).closest('li.item[data-item-id]');
+Hooks.on("dropActorSheetData", async (actor, sheet, data) => {
+    if (data.type !== "Item" || !data.uuid) return true;
+    const targetEl = document.elementFromPoint(window.event.clientX, window.event.clientY);
+    const targetRow = targetEl?.closest('[data-item-id]');
+    const droppedItem = fromUuidSync(data.uuid);
+    const supported = ["gear", "consumable"];
     
-    if (data.uuid) {
-        const droppedItem = fromUuidSync(data.uuid);
-        if (droppedItem && droppedItem.parent?.id === actor.id) {
-            if (targetRow.length > 0) {
-                const targetItemId = targetRow.data('item-id');
-                const targetItem = actor.items.get(targetItemId);
+    if (droppedItem && supported.includes(droppedItem.type) && droppedItem.parent?.id === actor.id) {
+        let newId = "";
+        let original = droppedItem.getFlag("swade-containers", "originalWeight") ?? Number(droppedItem.system.weight);
+        let targetWeight = original;
 
-                if (targetItem?.getFlag("swade-containers", "isContainer") && droppedItem.id !== targetItemId) {
-                    droppedItem.setFlag("swade-containers", "containerId", targetItemId);
-                    return false; 
-                }
-            } else {
-                // If dropped on the sheet but not on a container, remove from current container
-                if (droppedItem.getFlag("swade-containers", "containerId")) {
-                    droppedItem.setFlag("swade-containers", "containerId", "");
-                    return false;
-                }
+        if (targetRow) {
+            const tId = targetRow.dataset.itemId;
+            const targetItem = actor.items.get(tId);
+            if (targetItem && supported.includes(targetItem.type) && targetItem.getFlag("swade-containers", "isContainer") && droppedItem.id !== tId) {
+                newId = tId;
+                if (targetItem.getFlag("swade-containers", "isBackpack")) targetWeight = original * 0.5;
             }
         }
+
+        await droppedItem.update({
+            "system.weight": targetWeight,
+            "flags.swade-containers.containerId": newId,
+            "flags.swade-containers.originalWeight": original
+        });
+        return false; 
     }
     return true;
+});
+
+// 5. Backpack Sync
+Hooks.on("updateItem", async (item, changes, options, userId) => {
+    if (game.user.id !== userId || !foundry.utils.hasProperty(changes, "flags.swade-containers.isBackpack")) return;
+    const isNowBackpack = changes.flags["swade-containers"].isBackpack;
+    const children = item.parent?.items.filter(i => i.getFlag("swade-containers", "containerId") === item.id);
+    if (!children) return;
+
+    for (let child of children) {
+        let original = child.getFlag("swade-containers", "originalWeight") ?? Number(child.system.weight);
+        await child.update({ 
+            "system.weight": isNowBackpack ? original * 0.5 : original, 
+            "flags.swade-containers.originalWeight": original 
+        });
+    }
+});
+
+// 6. Equip Status Sync (Cascading Stored/Carried)
+Hooks.on("updateItem", async (item, changes, options, userId) => {
+    if (game.user.id !== userId || !foundry.utils.hasProperty(changes, "system.equipStatus")) return;
+
+    const newStatus = changes.system.equipStatus;
+    const isContainer = item.getFlag("swade-containers", "isContainer");
+
+    if (isContainer) {
+        // Find all items belonging to this container
+        const children = item.parent?.items.filter(i => i.getFlag("swade-containers", "containerId") === item.id);
+        if (!children || children.length === 0) return;
+
+        // Create the updates for all child items to match the parent's new status
+        const updates = children.map(child => ({
+            _id: child.id,
+            "system.equipStatus": newStatus
+        }));
+
+        // Perform a bulk update on the Actor to ensure weight recalculates once
+        if (updates.length > 0) {
+            await item.parent.updateEmbeddedDocuments("Item", updates);
+        }
+    }
 });
