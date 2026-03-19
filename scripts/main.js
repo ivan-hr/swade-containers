@@ -70,7 +70,7 @@ function injectItemUI(item, element) {
             <input type="checkbox" name="flags.swade-containers.isContainer" ${isContainer ? "checked" : ""}>
         </div>
         <div class="form-group backpack-option" style="${isContainer ? '' : 'display:none;'}">
-            <label><i class="fa fa-cube" style="color: #111;"></i> SWADE Backpack Rule (50% Weight inside)</label>
+            <label><i class="fa fa-cube" style="color: #111;"></i>Backpack Rule (50% Weight inside)</label>
             <input type="checkbox" name="flags.swade-containers.isBackpack" ${isBackpack ? "checked" : ""}>
         </div>
         <div class="form-group">
