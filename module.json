@@ -8,6 +8,7 @@
       "discord": "user41635"
     }
   ],
+  "license": "MIT",
   "version": "1.1.0",
   "compatibility": {
     "minimum": "13",
