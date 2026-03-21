@@ -42,8 +42,8 @@ Hooks.on("renderApplicationV2", (app, html) => {
 
 // 2. Item Sheet UI
 function injectItemUI(item, element) {
-    const supported = ["gear", "consumable"]; 
-    if (!supported.includes(item.type)) return;
+    const canBeContainer = ["gear", "consumable"]; 
+    if (!canBeContainer.includes(item.type)) return;
     
     if (element.querySelector('.swade-container-settings')) return;
 
@@ -57,7 +57,7 @@ function injectItemUI(item, element) {
 
     let options = `<option value="">-- None --</option>`;
     if (item.actor) {
-        item.actor.items.filter(i => supported.includes(i.type) && i.getFlag("swade-containers", "isContainer") && i.id !== item.id)
+        item.actor.items.filter(i => canBeContainer.includes(i.type) && i.getFlag("swade-containers", "isContainer") && i.id !== item.id)
             .forEach(c => {
                 options += `<option value="${c.id}" ${parentId === c.id ? "selected" : ""}>${c.name}</option>`;
             });
@@ -93,7 +93,7 @@ function handleActorUI(app, element) {
     const $html = $(element);
     const weightTotals = {};
     const itemRows = $html.find('[data-item-id]');
-    const supported = ["gear", "consumable"];
+    const supported = ["gear", "consumable", "weapon", "armor", "shield"];
     
     itemRows.each((i, el) => {
         const item = actor.items.get(el.dataset.itemId);
@@ -127,7 +127,7 @@ function handleActorUI(app, element) {
         const pId = item.getFlag("swade-containers", "containerId");
         if (pId) {
             const parentRow = $html.find(`[data-item-id="${pId}"]`).first();
-            if (parentRow.length && parentRow.parent().is($(el).parent())) {
+            if (parentRow.length) {
                 $(el).insertAfter(parentRow);
                 const isCollapsed = !!actor.items.get(pId)?.getFlag("swade-containers", "isCollapsed");
                 $(el).addClass("swade-item-child").css({
@@ -162,12 +162,25 @@ function handleActorUI(app, element) {
 // 4. Drag and Drop Interaction
 Hooks.on("dropActorSheetData", async (actor, sheet, data) => {
     if (data.type !== "Item" || !data.uuid) return true;
-    const targetEl = document.elementFromPoint(window.event.clientX, window.event.clientY);
-    const targetRow = targetEl?.closest('[data-item-id]');
+
     const droppedItem = fromUuidSync(data.uuid);
-    const supported = ["gear", "consumable"];
     
-    if (droppedItem && supported.includes(droppedItem.type) && droppedItem.parent?.id === actor.id) {
+    // 1. Items that can be NESTED
+    const isSupported = ["gear", "consumable", "weapon", "armor", "shield"];
+    // 2. Items that can ACT as a container
+    const canBeContainer = ["gear", "consumable"];
+    
+    if (droppedItem && isSupported.includes(droppedItem.type) && droppedItem.parent?.id === actor.id) {
+        
+        const ev = window.event;
+        if (ev && typeof ev.stopPropagation === "function") {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+
+        const targetEl = document.elementFromPoint(window.event.clientX, window.event.clientY);
+        const targetRow = targetEl?.closest('[data-item-id]');
+        
         let newId = "";
         let original = droppedItem.getFlag("swade-containers", "originalWeight") ?? Number(droppedItem.system.weight);
         let targetWeight = original;
@@ -175,7 +188,13 @@ Hooks.on("dropActorSheetData", async (actor, sheet, data) => {
         if (targetRow) {
             const tId = targetRow.dataset.itemId;
             const targetItem = actor.items.get(tId);
-            if (targetItem && supported.includes(targetItem.type) && targetItem.getFlag("swade-containers", "isContainer") && droppedItem.id !== tId) {
+            
+            // FIX: Check if the target is in the 'canBeContainer' list
+            if (targetItem && 
+                canBeContainer.includes(targetItem.type) && 
+                targetItem.getFlag("swade-containers", "isContainer") && 
+                droppedItem.id !== tId) {
+                
                 newId = tId;
                 if (targetItem.getFlag("swade-containers", "isBackpack")) targetWeight = original * 0.5;
             }
@@ -186,6 +205,8 @@ Hooks.on("dropActorSheetData", async (actor, sheet, data) => {
             "flags.swade-containers.containerId": newId,
             "flags.swade-containers.originalWeight": original
         });
+
+        sheet.render(true);
         return false; 
     }
     return true;
@@ -207,7 +228,7 @@ Hooks.on("updateItem", async (item, changes, options, userId) => {
     }
 });
 
-// 6. Equip Status Sync (Cascading Stored/Carried)
+// 6. Equip Status Sync
 Hooks.on("updateItem", async (item, changes, options, userId) => {
     if (game.user.id !== userId || !foundry.utils.hasProperty(changes, "system.equipStatus")) return;
 
@@ -215,17 +236,14 @@ Hooks.on("updateItem", async (item, changes, options, userId) => {
     const isContainer = item.getFlag("swade-containers", "isContainer");
 
     if (isContainer) {
-        // Find all items belonging to this container
         const children = item.parent?.items.filter(i => i.getFlag("swade-containers", "containerId") === item.id);
         if (!children || children.length === 0) return;
 
-        // Create the updates for all child items to match the parent's new status
         const updates = children.map(child => ({
             _id: child.id,
             "system.equipStatus": newStatus
         }));
 
-        // Perform a bulk update on the Actor to ensure weight recalculates once
         if (updates.length > 0) {
             await item.parent.updateEmbeddedDocuments("Item", updates);
         }
