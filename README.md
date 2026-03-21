@@ -22,3 +22,8 @@ To install, import this manifest into the module browser or search for 'SWADE Co
 
 **Manifest URL:**
 `https://raw.githubusercontent.com/ivan-hr/swade-containers/main/module.json`
+
+---
+
+### **License**
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
